@@ -1,0 +1,40 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+logs/
+*.lock
+.DS_Store
+memory.db
+
+# Instance workspaces (runtime data, not committed).
+# Per-conversation sandboxes live here, including cloned repos:
+# packages/engine/workspaces/{instanceId}/conversations/{convId}/.repos/
+packages/engine/workspaces/*/
+
+# Legacy cloned-repos directory (deprecated; kept for safety against leftovers)
+packages/engine/.repos/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+
+# Eval loop reports (generated)
+packages/engine/scripts/eval-loop/**/*.json
+packages/engine/scripts/eval-loop/**/*.md
+
+# Worktrees
+.worktrees/
+.claude/worktrees/
+
+# Next.js
+.next/
+
+.desloppify/
+
+# Local Claude Code settings (may contain session tokens or machine-specific permissions)
+.claude/settings.local.json
+

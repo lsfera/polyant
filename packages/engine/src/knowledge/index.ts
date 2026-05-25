@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+export { searchKnowledge } from "./search.js";
+export type { KnowledgeSearchResult } from "./search.js";
+
+export { processDocument } from "./ingestion.js";
+
+export {
+  createDocument,
+  updateDocumentStatus,
+  listDocuments,
+  getDocument,
+  deleteDocument,
+  countChunks,
+  countDocuments,
+  hashContent,
+} from "./store.js";
+export type { KnowledgeDocument } from "./store.js";
+
+export { chunkText } from "./chunker.js";

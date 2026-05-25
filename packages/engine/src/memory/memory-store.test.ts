@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Chain mock: each chained method returns the chain itself, with the final
+// call returning a resolved promise (or the accumulated result).
+function createChainMock(resolvedValue: unknown = []) {
+  const chain: Record<string, ReturnType<typeof vi.fn>> = {};
+  const self = new Proxy(chain, {
+    get(_target, prop: string) {
+      if (prop === "then") {
+        // Make the chain thenable so `await` resolves it
+        return (resolve: (v: unknown) => void) => resolve(resolvedValue);
+      }
+      if (!chain[prop]) {
+        chain[prop] = vi.fn(() => self);
+      }
+      return chain[prop];
+    },
+  });
+  return self;
+}
+
+const { mockDb } = vi.hoisted(() => {
+  const mockDb = {
+    select: vi.fn(),
+    update: vi.fn(),
+    insert: vi.fn(),
+    delete: vi.fn(),
+    transaction: vi.fn(),
+  };
+  // transaction passes the mock db itself as the tx argument
+  mockDb.transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
+  return { mockDb };
+});
+
+vi.mock("../database/client.js", () => ({
+  db: mockDb,
+}));
+
+vi.mock("./schema.js", () => ({
+  memories: {
+    id: "id",
+    instanceId: "instance_id",
+    content: "content",
+    category: "category",
+    importance: "importance",
+    sourceConversationId: "source_conversation_id",
+    embedding: "embedding",
+    createdAt: "created_at",
+    updatedAt: "updated_at",
+  },
+}));
+
+// Mock drizzle-orm functions used by memory-store
+vi.mock("drizzle-orm", () => ({
+  eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
+  desc: vi.fn((col: unknown) => ({ type: "desc", col })),
+  sql: Object.assign(vi.fn(), {
+    raw: vi.fn(),
+  }),
+  gt: vi.fn((...args: unknown[]) => ({ type: "gt", args })),
+  and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
+}));
+
+vi.mock("drizzle-orm/sql/functions", () => ({
+  cosineDistance: vi.fn(() => "mock-cosine-distance"),
+}));
+
+import {
+  upsertMemory,
+  searchByVector,
+  getAllMemories,
+  deleteMemoryForInstance,
+  deleteAllMemories,
+} from "./memory-store.js";
+
+describe("memory-store", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe("upsertMemory", () => {
+    it("inserts when no duplicate found", async () => {
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+      const insChain = createChainMock([{ id: "new-id" }]);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      const result = await upsertMemory({
+        instanceId: "user-1",
+        content: "User likes pizza",
+        category: "preference",
+        importance: 8,
+        embedding: [0.1, 0.2],
+      });
+
+      expect(result).toEqual({
+        id: "new-id",
+        content: "User likes pizza",
+        event: "ADD",
+      });
+      expect(mockDb.select).toHaveBeenCalled();
+      expect(mockDb.insert).toHaveBeenCalled();
+    });
+
+    it("updates when near-duplicate exists", async () => {
+      const selChain = createChainMock([
+        { id: "existing-id", content: "User likes pasta", distance: 0.05 },
+      ]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const updChain = createChainMock(undefined);
+      mockDb.update.mockReturnValue(updChain as any);
+
+      const result = await upsertMemory({
+        instanceId: "user-1",
+        content: "User likes pizza",
+        embedding: [0.1, 0.2],
+      });
+
+      expect(result).toEqual({
+        id: "existing-id",
+        content: "User likes pizza",
+        event: "UPDATE",
+      });
+      expect(mockDb.update).toHaveBeenCalled();
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("searchByVector", () => {
+    it("returns results with similarity", async () => {
+      const rows = [
+        {
+          id: "m1",
+          instanceId: "user-1",
+          content: "Likes coffee",
+          category: "preference",
+          importance: 7,
+          sourceConversationId: null,
+          createdAt: new Date("2025-01-01"),
+          updatedAt: new Date("2025-01-01"),
+          distance: 0.15,
+        },
+      ];
+      const selChain = createChainMock(rows);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const results = await searchByVector([0.1, 0.2], "user-1", 10);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].similarity).toBe(0.85); // 1 - 0.15
+      expect(results[0].content).toBe("Likes coffee");
+      expect(mockDb.select).toHaveBeenCalled();
+    });
+  });
+
+  describe("getAllMemories", () => {
+    it("returns records for user", async () => {
+      const rows = [
+        {
+          id: "m1",
+          instanceId: "user-1",
+          content: "Fact A",
+          category: "general",
+          importance: 5,
+          sourceConversationId: null,
+          createdAt: new Date("2025-01-01"),
+          updatedAt: new Date("2025-01-02"),
+        },
+      ];
+      const selChain = createChainMock(rows);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const results = await getAllMemories("user-1");
+
+      expect(results).toHaveLength(1);
+      expect(results[0].content).toBe("Fact A");
+      expect(mockDb.select).toHaveBeenCalled();
+    });
+  });
+
+  describe("deleteMemoryForInstance", () => {
+    it("calls delete with instance scope and returns true when row deleted", async () => {
+      const delChain = createChainMock([{ id: "mem-123" }]);
+      mockDb.delete.mockReturnValue(delChain as any);
+
+      const result = await deleteMemoryForInstance("mem-123", "inst-1");
+
+      expect(result).toBe(true);
+      expect(mockDb.delete).toHaveBeenCalled();
+    });
+
+    it("returns false when no row matches", async () => {
+      const delChain = createChainMock([]);
+      mockDb.delete.mockReturnValue(delChain as any);
+
+      const result = await deleteMemoryForInstance("mem-999", "inst-1");
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("deleteAllMemories", () => {
+    it("calls delete for user", async () => {
+      const delChain = createChainMock(undefined);
+      mockDb.delete.mockReturnValue(delChain as any);
+
+      await deleteAllMemories("user-1");
+
+      expect(mockDb.delete).toHaveBeenCalled();
+    });
+  });
+});

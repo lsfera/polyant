@@ -1,0 +1,49 @@
+{
+  "name": "polyant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Polyant — open-source platform for building AI assistants with long-term memory and multi-channel support",
+  "license": "AGPL-3.0-or-later",
+  "author": "Exelab S.r.l.",
+  "homepage": "https://github.com/polyant-ai/polyant",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/polyant-ai/polyant.git"
+  },
+  "bugs": {
+    "url": "https://github.com/polyant-ai/polyant/issues"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @polyant/engine",
+    "dev:engine": "npm run dev -w @polyant/engine",
+    "dev:web": "npm run dev -w @polyant/web",
+    "build": "npm run build --workspaces --if-present",
+    "build:engine": "npm run build -w @polyant/engine",
+    "build:web": "npm run build -w @polyant/web",
+    "start": "npm run start -w @polyant/engine",
+    "db:generate": "npm run db:generate -w @polyant/engine",
+    "db:migrate": "npm run db:migrate -w @polyant/engine",
+    "db:studio": "npm run db:studio -w @polyant/engine",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run test:unit -w @polyant/engine",
+    "test:integration": "npm run test:integration -w @polyant/engine",
+    "test:functional": "npm run test:functional -w @polyant/engine",
+    "licenses": "npx --yes license-checker --excludePackages \"@polyant/engine;@polyant/web;polyant\" --excludePrivatePackages --markdown | grep -v '^\\[@polyant/'"
+  },
+  "overrides": {
+    "path-to-regexp": "^8.4.1",
+    "next": "15.5.18",
+    "axios": "^1.15.0",
+    "langsmith": "^0.5.19"
+  },
+  "dependencies": {
+    "axios": "^1.15.0",
+    "drizzle-orm": "^0.45.2",
+    "path-to-regexp": "^8.4.1"
+  }
+}

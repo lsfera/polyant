@@ -1,0 +1,9 @@
+node_modules
+packages/engine/dist
+packages/engine/.repos
+packages/web/.next
+packages/web/node_modules
+.git
+*.log
+.env.local
+.DS_Store

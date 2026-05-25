@@ -1,0 +1,385 @@
+{
+  "description": "Test cases for validating updateSoul and updateUserProfile tool invocation guardrails",
+  "cases": [
+    {
+      "id": "soul-01",
+      "category": "should_trigger_updateSoul",
+      "description": "Richiesta esplicita di cambio nome assistente",
+      "messages": [
+        { "role": "user", "content": "Cambia il tuo nome in Exy" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-02",
+      "category": "should_trigger_updateSoul",
+      "description": "Richiesta di tono formale",
+      "messages": [
+        { "role": "user", "content": "Da oggi in poi rispondimi sempre in modo formale, niente abbreviazioni" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-03",
+      "category": "should_trigger_updateSoul",
+      "description": "Richiesta di aggiunta firma con emoji",
+      "messages": [
+        { "role": "user", "content": "Vorrei che ti firmassi sempre con l'emoji ⚙️ alla fine dei messaggi" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-04",
+      "category": "should_trigger_updateSoul",
+      "description": "Richiesta di stile più diretto",
+      "messages": [
+        { "role": "user", "content": "Puoi essere più diretto e meno formale nelle risposte? Aggiorna il tuo comportamento" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-05",
+      "category": "should_trigger_updateSoul",
+      "description": "Richiesta esplicita aggiornamento personalità",
+      "messages": [
+        { "role": "user", "content": "Aggiorna la tua personalità: sii più empatico e mostra più interesse per come mi sento" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-06",
+      "category": "should_trigger_updateSoul",
+      "description": "Richiesta di aggiunta valore",
+      "messages": [
+        { "role": "user", "content": "Aggiungi tra i tuoi valori la creatività, voglio che sia parte del tuo modo di essere" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-07",
+      "category": "should_trigger_updateSoul",
+      "description": "Rinomina assistente in conversazione",
+      "messages": [
+        { "role": "user", "content": "Il tuo nome è Marco da adesso, aggiornalo nella tua configurazione" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-08",
+      "category": "should_trigger_updateSoul",
+      "description": "Richiesta di stile pirata",
+      "messages": [
+        { "role": "user", "content": "Modifica la tua personalità: da ora rispondi come se fossi un pirata, con espressioni marinaresche" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-09",
+      "category": "should_trigger_updateSoul",
+      "description": "Aggiornamento firma testuale",
+      "messages": [
+        { "role": "user", "content": "Nella tua firma metti 'Con stima, Exy' e usala sempre" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "soul-10",
+      "category": "should_trigger_updateSoul",
+      "description": "Aggiunta tratto personalità",
+      "messages": [
+        { "role": "user", "content": "Aggiungi un tratto alla tua personalità: sei appassionato di tecnologia e lo mostri nelle risposte" }
+      ],
+      "expectedTools": ["updateSoul"]
+    },
+    {
+      "id": "profile-01",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela nome e età",
+      "messages": [
+        { "role": "user", "content": "Mi chiamo Luca e ho 34 anni" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-02",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela ruolo professionale",
+      "messages": [
+        { "role": "user", "content": "Sono il CTO di Acme Corp" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-03",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela allergia",
+      "messages": [
+        { "role": "user", "content": "Sono allergico alle arachidi, tienilo a mente" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-04",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela dieta",
+      "messages": [
+        { "role": "user", "content": "Seguo una dieta vegana da tre anni" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-05",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela hobby",
+      "messages": [
+        { "role": "user", "content": "Sono un appassionato di padel, gioco tre volte a settimana" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-06",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela data di nascita",
+      "messages": [
+        { "role": "user", "content": "Il mio compleanno è il 15 marzo 1990" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-07",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela location",
+      "messages": [
+        { "role": "user", "content": "Lavoro da remoto da Bali da sei mesi ormai" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-08",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela competenze linguistiche",
+      "messages": [
+        { "role": "user", "content": "Parlo italiano e inglese fluentemente, sto studiando anche il giapponese" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-09",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela obiettivo personale",
+      "messages": [
+        { "role": "user", "content": "Il mio obiettivo quest'anno è correre una maratona, mi sto allenando da mesi" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "profile-10",
+      "category": "should_trigger_updateUserProfile",
+      "description": "Utente rivela studio",
+      "messages": [
+        { "role": "user", "content": "Studio machine learning nel tempo libero, sto seguendo il corso di Andrew Ng" }
+      ],
+      "expectedTools": ["updateUserProfile"]
+    },
+    {
+      "id": "neg-01",
+      "category": "should_NOT_trigger",
+      "description": "Domanda sulla personalità dell'assistente (non modifica)",
+      "messages": [
+        { "role": "user", "content": "Cos'è la tua personalità? Come sei configurato?" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-02",
+      "category": "should_NOT_trigger",
+      "description": "Domanda sul proprio nome (non modifica)",
+      "messages": [
+        { "role": "user", "content": "Come ti chiami? Hai un nome?" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-03",
+      "category": "should_NOT_trigger",
+      "description": "Domanda sull'azienda Acme Corp",
+      "messages": [
+        { "role": "user", "content": "Chi è il fondatore di Acme Corp? Raccontami la storia dell'azienda" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-04",
+      "category": "should_NOT_trigger",
+      "description": "Domanda sullo stile di risposta (senza richiesta di cambio)",
+      "messages": [
+        { "role": "user", "content": "Qual è il tuo stile di risposta attuale?" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-05",
+      "category": "should_NOT_trigger",
+      "description": "Domanda su info profilo utente (lettura, non scrittura)",
+      "messages": [
+        { "role": "user", "content": "Che informazioni hai su di me nel mio profilo?" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-06",
+      "category": "should_NOT_trigger",
+      "description": "Info su un cliente, non sull'utente",
+      "messages": [
+        { "role": "user", "content": "Mario Rossi is our new customer, age 45, based in Milan" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-07",
+      "category": "should_NOT_trigger",
+      "description": "Presentazione sull'identità aziendale (non identità assistente)",
+      "messages": [
+        { "role": "user", "content": "Sto preparando una presentazione sull'identità aziendale di Acme Corp, mi aiuti con i punti chiave?" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-08",
+      "category": "should_NOT_trigger",
+      "description": "Aggiornare un report (non soul/profilo)",
+      "messages": [
+        { "role": "user", "content": "Aggiorna il report con i nuovi dati di vendita del Q3: fatturato 150k, crescita 12%" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-09",
+      "category": "should_NOT_trigger",
+      "description": "Info su CEO di altra azienda",
+      "messages": [
+        { "role": "user", "content": "Il CEO di TechCorp si chiama Marco Rossi, ha 52 anni ed è laureato al Politecnico. Cerca altre info su di lui" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-10",
+      "category": "should_NOT_trigger",
+      "description": "Multi-turn: profilo di un CLIENTE, non dell'utente",
+      "messages": [
+        { "role": "user", "content": "Sto analizzando il profilo del cliente XYZ Corp" },
+        { "role": "assistant", "content": "Certo, dimmi che informazioni hai raccolto su XYZ Corp e ti aiuto ad analizzarle." },
+        { "role": "user", "content": "Il referente ha 45 anni, vive a Milano, è appassionato di golf" },
+        { "role": "assistant", "content": "Ottimo, queste sono informazioni utili per personalizzare l'approccio. Vuoi che le salvi?" },
+        { "role": "user", "content": "Sì, salva queste info sul profilo del contatto" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-11",
+      "category": "should_NOT_trigger",
+      "description": "Multi-turn: configurare un DIVERSO assistente",
+      "messages": [
+        { "role": "user", "content": "Devo configurare un nuovo assistente per il team vendite" },
+        { "role": "assistant", "content": "Interessante! Che tipo di personalità e competenze vorresti che avesse questo nuovo assistente?" },
+        { "role": "user", "content": "Dovrebbe essere formale e professionale, con tono autorevole" },
+        { "role": "assistant", "content": "Capito. Un tono formale e autorevole per il team vendite. Vuoi definire anche altri aspetti?" },
+        { "role": "user", "content": "Sì, salva questa configurazione per il nuovo assistente" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-12",
+      "category": "should_NOT_trigger",
+      "description": "Domanda teorica su tone e stile",
+      "messages": [
+        { "role": "user", "content": "Qual è la differenza tra tono e stile nella comunicazione aziendale?" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-13",
+      "category": "should_NOT_trigger",
+      "description": "Info su un collega (non sull'utente)",
+      "messages": [
+        { "role": "user", "content": "Paolo è il mio collega, lavora nel team vendite, ha 28 anni e viene da Napoli" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-14",
+      "category": "should_NOT_trigger",
+      "description": "Richiesta di ricerca aziendale",
+      "messages": [
+        { "role": "user", "content": "Puoi cercare informazioni sull'azienda Acme Inc? Voglio sapere chi sono e cosa fanno" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-15",
+      "category": "should_NOT_trigger",
+      "description": "Reminder generico (non aggiornamento profilo)",
+      "messages": [
+        { "role": "user", "content": "Ricordami di aggiornare il profilo LinkedIn domani mattina" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-16",
+      "category": "should_NOT_trigger",
+      "description": "Multi-turn: tono formale per EMAIL, non per soul",
+      "messages": [
+        { "role": "user", "content": "Ho bisogno di scrivere un'email importante" },
+        { "role": "assistant", "content": "Certo! A chi è destinata e qual è l'argomento?" },
+        { "role": "user", "content": "Deve essere in tono formale e professionale, per il cliente Rossi" },
+        { "role": "assistant", "content": "Perfetto, tono formale per il cliente Rossi. Di cosa tratta l'email?" },
+        { "role": "user", "content": "Riguarda il rinnovo del contratto annuale. Scrivila con quel tono" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-17",
+      "category": "should_NOT_trigger",
+      "description": "Domanda meta sul tool updateSoul",
+      "messages": [
+        { "role": "user", "content": "Come funziona il tool updateSoul? Cosa succede quando lo usi?" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-18",
+      "category": "should_NOT_trigger",
+      "description": "Richiesta di modifica file (non soul)",
+      "messages": [
+        { "role": "user", "content": "Modifica il file notes/meeting.txt aggiungendo i punti discussi oggi" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-19",
+      "category": "should_NOT_trigger",
+      "description": "Multi-turn: raccogliere dati anagrafici di un contatto",
+      "messages": [
+        { "role": "user", "content": "Sto raccogliendo dati anagrafici per la nostra rubrica" },
+        { "role": "assistant", "content": "Perfetto, che dati vuoi inserire?" },
+        { "role": "user", "content": "Il contatto ha 28 anni, lavora come designer freelance, vive a Firenze" },
+        { "role": "assistant", "content": "Ho le informazioni. Vuoi che le salvi?" },
+        { "role": "user", "content": "Sì, salva il profilo di questo contatto" }
+      ],
+      "expectedTools": []
+    },
+    {
+      "id": "neg-20",
+      "category": "should_NOT_trigger",
+      "description": "Multi-turn: preferenza di formato per un documento",
+      "messages": [
+        { "role": "user", "content": "Devo creare un documento per il team" },
+        { "role": "assistant", "content": "Certo! Che tipo di documento e per quale scopo?" },
+        { "role": "user", "content": "Mi piace quando usi un tono amichevole nei documenti, con bullet points" },
+        { "role": "assistant", "content": "Perfetto, tono amichevole e struttura con bullet points. Di cosa tratta il documento?" },
+        { "role": "user", "content": "È un resoconto della riunione di ieri sulle nuove funzionalità del prodotto" }
+      ],
+      "expectedTools": []
+    }
+  ]
+}

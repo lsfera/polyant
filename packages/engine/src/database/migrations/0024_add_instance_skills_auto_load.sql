@@ -1,0 +1,1 @@
+ALTER TABLE "instance_skills" ADD COLUMN IF NOT EXISTS "auto_load" boolean NOT NULL DEFAULT false;

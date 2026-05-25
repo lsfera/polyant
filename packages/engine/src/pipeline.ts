@@ -1,0 +1,483 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// ---------------------------------------------------------------------------
+// Pipeline — Extracted shared logic for message handling
+// ---------------------------------------------------------------------------
+// Houses preparePipeline, afterResponse, runPipelinePre, runPipelinePost,
+// and module-level helpers (isAutoTask, isMissingApiKeyError, MISSING_KEY_RESPONSE).
+// ---------------------------------------------------------------------------
+
+import type { CoreMessage } from "ai";
+import { config, DEFAULT_INSTANCE_ID } from "./config.js";
+import { chat } from "./ai-gateway/index.js";
+import { conversationStore } from "./conversations/index.js";
+import { extractMemories } from "./memory/index.js";
+import { pipelineLog } from "./utils/pipeline-logger.js";
+import { generateConversationTitle } from "./utils/title-generator.js";
+import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
+import { traceStore } from "./analytics/trace.store.js";
+import { uploadAttachment, isPlatformStorageConfigured } from "./attachments/platform-storage.js";
+import type { AttachmentMeta } from "./conversations/schema.js";
+import type { AgentCallMetadata, Attachment, IncomingMessage } from "./channels/types.js";
+import type { ToolCallTrace } from "./analytics/traces.schema.js";
+import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
+import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
+import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
+
+/**
+ * Channel types that should NOT produce `category: "inbound"` events:
+ *   - `agent`     → covered by `emitAgentHandoffStart`/`End` (dual-avatar row)
+ *   - `scheduled` → covered by `emitCron` (fires before the message handler)
+ *   - `room`      → event-driven, no inbound user message
+ * Anything else (telegram/whatsapp/slack/web/openai/…) emits.
+ */
+const INBOUND_SUPPRESSED_CHANNELS = new Set(["agent", "scheduled", "room"]);
+
+// ---------------------------------------------------------------------------
+// Module-level helpers (moved out of main() closure)
+// ---------------------------------------------------------------------------
+
+/** Detect automated Open WebUI task messages (title/tag generation). */
+export function isAutoTask(text: string): boolean {
+  return text.startsWith("### Task:");
+}
+
+/** Extract STT audio fields from inbound metadata for trace recording. */
+function extractSttFields(inboundMetadata: Record<string, unknown> | undefined): {
+  sttProvider: string | null;
+  audioDurationSec: string | null;
+  sttDurationMs: number | null;
+} {
+  if (inboundMetadata?.originalKind !== "audio") {
+    return { sttProvider: null, audioDurationSec: null, sttDurationMs: null };
+  }
+  const audio = inboundMetadata.audio as
+    | { durationSec?: number; sttProvider?: string; latencyMs?: number }
+    | undefined;
+  return {
+    sttProvider: audio?.sttProvider ?? null,
+    audioDurationSec: typeof audio?.durationSec === "number" ? String(audio.durationSec) : null,
+    sttDurationMs: typeof audio?.latencyMs === "number" ? audio.latencyMs : null,
+  };
+}
+
+/** Check if an error is caused by a missing AI provider API key. */
+export function isMissingApiKeyError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes("api key not configured") || msg.includes("api key required");
+}
+
+/** Friendly message returned when the AI provider key is not set for the instance. */
+export const MISSING_KEY_RESPONSE =
+  "⚠️ This AI assistant instance does not have an API key configured for its AI provider. " +
+  "Please go to the admin panel → Instance → Settings tab and set the appropriate API key " +
+  "(OpenAI or Anthropic) to enable this assistant.";
+
+// ---------------------------------------------------------------------------
+// PipelineContext — everything preparePipeline returns
+// ---------------------------------------------------------------------------
+
+export interface PipelineContext {
+  pipelineStart: number;
+  instanceId: string;
+  conversationId: string;
+  conversationSummary: string | undefined;
+  contextPrompt: string | undefined;
+  channelIdentity: { channel: string; channelId: string; userName?: string } | undefined;
+  history: CoreMessage[] | undefined;
+  hasOverflow: boolean;
+  droppedMessages: CoreMessage[] | undefined;
+  instanceConfig: InstanceConfig;
+  langsmith: { apiKey: string; project: string } | undefined;
+  /** Attachments to persist alongside the user message, once the pipeline has succeeded. */
+  userAttachments: Attachment[] | undefined;
+  /** External system messages to persist alongside the user message. */
+  incomingSystemMessages: Array<{ role: string; content: string }> | undefined;
+  /** Whether this turn is an automated Open WebUI task (title/tag gen) — persistence skipped. */
+  isAutoTaskTurn: boolean;
+  /** Raw inbound metadata (e.g. audio STT block) — forwarded to the saved user message row. */
+  inboundMetadata: Record<string, unknown> | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// preparePipeline — context prep phase (extracted from ~lines 222-296)
+// ---------------------------------------------------------------------------
+
+/** Build LangSmith config from instance config, or undefined if not enabled. */
+function buildLangsmithConfig(cfg: InstanceConfig): { apiKey: string; project: string } | undefined {
+  if (!cfg.langsmith.enabled || !cfg.langsmith.apiKey) return undefined;
+  return { apiKey: cfg.langsmith.apiKey, project: cfg.langsmith.project ?? "default" };
+}
+
+export async function preparePipeline(
+  msg: IncomingMessage,
+  conversationIdOverride?: string | null,
+): Promise<PipelineContext> {
+  const pipelineStart = Date.now();
+  const instanceId = msg.instanceId || DEFAULT_INSTANCE_ID;
+  pipelineLog.request(msg.channelType, instanceId, msg.text);
+
+  const conversationId = conversationIdOverride
+    ?? `${instanceId}:${msg.channelType}:${msg.channelId}`;
+
+  // Skip conversation creation for automated tasks (e.g. Open WebUI title/tag generation)
+  if (!isAutoTask(msg.text)) {
+    const source = (msg.metadata?.source as string) ?? "user";
+    const ensureResult = await conversationStore
+      .ensureConversation(conversationId, instanceId, {
+        channel: msg.channelType,
+        userIdentifier: msg.userName,
+        source,
+      })
+      .catch((err) => {
+        console.error(`Failed to ensure conversation ${conversationId}:`, err);
+        return { created: false };
+      });
+
+    // Activity-stream emit: lifecycle event when a brand-new conversation row
+    // is created (never on subsequent turns of the same conversation).
+    // Skipped for synthetic channels covered by other emitters.
+    if (ensureResult.created && !INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
+      resolveInstanceMeta(instanceId)
+        .then((instance) => {
+          emitConversation({
+            conversationId,
+            lifecycle: "created",
+            source,
+            channel: msg.channelType,
+            instance,
+          });
+        })
+        .catch(() => {
+          /* swallow */
+        });
+    }
+
+    // Activity-stream emit: surface the inbound user message BEFORE the
+    // supervisor runs. Skipped for auto-tasks (handled above) and for synthetic
+    // channels covered by other emitters (agent/scheduled/room).
+    // Fire-and-forget; the emitter is safeEmit-wrapped.
+    if (!INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
+      resolveInstanceMeta(instanceId)
+        .then((instance) => {
+          emitInbound({
+            channelType: msg.channelType,
+            channelId: msg.channelId,
+            sender: msg.userName,
+            text: msg.text,
+            conversationId,
+            instance,
+          });
+        })
+        .catch(() => {
+          /* resolveInstanceMeta swallows internally; guard the chain */
+        });
+    }
+  }
+
+  // Fetch history, instance config, and context prompt in parallel — all independent.
+  const [conversationHistory, instanceConfig, contextPrompt] = await Promise.all([
+    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as CoreMessage[]),
+    resolveInstanceConfig(instanceId),
+    conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
+  ]);
+
+  // NOTE: user message and incoming system messages are NOT persisted here.
+  // They are persisted in `afterResponse()` only after the pipeline succeeds,
+  // so that an aborted pipeline (cancel-and-restart) leaves no trace in DB.
+  const incomingSystemMessages = (msg.metadata?.systemMessages as Array<{ role: string; content: string }>) ?? [];
+  const isAutoTaskTurn = isAutoTask(msg.text);
+
+  // Sliding window: if >15 messages exist, use summary + last 10; otherwise pass all
+  const hasOverflow = conversationHistory.length > 15;
+  let history: CoreMessage[] | undefined;
+  let conversationSummary: string | undefined;
+  let droppedMessages: CoreMessage[] | undefined;
+
+  if (hasOverflow) {
+    conversationSummary =
+      (await conversationStore.getSummary(conversationId).catch(() => null)) ?? undefined;
+    history = conversationHistory.slice(-10);
+    droppedMessages = conversationHistory.slice(0, -10);
+  } else {
+    conversationSummary = undefined;
+    history = conversationHistory.length > 0
+      ? conversationHistory
+      : (msg.metadata?.conversationHistory as CoreMessage[] | undefined);
+  }
+
+  const langsmith = buildLangsmithConfig(instanceConfig);
+
+  // Build channel identity — injected into the system prompt so the agent
+  // always knows who it is talking to, regardless of channel.
+  const channelIdentity = isAutoTaskTurn
+    ? undefined
+    : { channel: msg.channelType, channelId: msg.channelId, userName: msg.userName };
+
+  return {
+    pipelineStart,
+    instanceId,
+    conversationId,
+    conversationSummary,
+    contextPrompt,
+    channelIdentity,
+    history,
+    hasOverflow,
+    droppedMessages,
+    instanceConfig,
+    langsmith,
+    userAttachments: msg.attachments,
+    incomingSystemMessages: incomingSystemMessages.length > 0 ? incomingSystemMessages : undefined,
+    isAutoTaskTurn,
+    inboundMetadata: Object.keys(msg.metadata).length > 0 ? msg.metadata : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// afterResponse — fire-and-forget post-processing (extracted from ~lines 118-200)
+// ---------------------------------------------------------------------------
+
+export interface AfterResponseOptions {
+  conversationId: string;
+  instanceId: string;
+  userMessage: string;
+  assistantResponse: string;
+  steps?: unknown[];
+  existingSummary?: string;
+  /** When true, the sliding window overflowed — generate/update summary. */
+  needsSummaryUpdate?: boolean;
+  /** Messages that fell outside the retained window (to be summarized). */
+  droppedMessages?: CoreMessage[];
+  memoryEnabled?: boolean;
+  provider?: string;
+  apiKeys?: InstanceConfig["apiKeys"];
+  langsmith?: { apiKey: string; project: string };
+  /** User-message attachments to upload + persist alongside the user row. */
+  userAttachments?: Attachment[];
+  /** External system messages to persist before the user row. */
+  incomingSystemMessages?: Array<{ role: string; content: string }>;
+  /** Raw inbound metadata (e.g. audio STT block) to persist alongside the user row. */
+  inboundMetadata?: Record<string, unknown>;
+}
+
+export function afterResponse(opts: AfterResponseOptions): void {
+  // Skip automated Open WebUI tasks entirely
+  if (isAutoTask(opts.userMessage)) return;
+
+  const work = async () => {
+    // 0. Persist external system messages + user message (deferred from pre-pipeline
+    // so that an aborted/restarted pipeline leaves no orphan rows in DB).
+    if (opts.incomingSystemMessages?.length) {
+      await conversationStore
+        .appendMessages(
+          opts.conversationId,
+          opts.incomingSystemMessages.map((sm) => ({ role: "system", content: sm.content })),
+        )
+        .catch((err) => console.error(`Failed to persist system messages for ${opts.conversationId}:`, err));
+    }
+
+    let attachmentMetas: AttachmentMeta[] | undefined;
+    if (opts.userAttachments?.length && isPlatformStorageConfigured()) {
+      const results = await Promise.all(
+        opts.userAttachments.map((att) =>
+          att.data
+            ? uploadAttachment(att.data, {
+                type: att.type,
+                mimeType: att.mimeType,
+                fileName: att.fileName,
+                instanceId: opts.instanceId,
+                conversationId: opts.conversationId,
+              })
+            : Promise.resolve(null),
+        ),
+      );
+      attachmentMetas = results.filter((r): r is AttachmentMeta => r != null);
+    }
+    await conversationStore.appendMessages(opts.conversationId, [
+      {
+        role: "user",
+        content: opts.userMessage,
+        attachments: attachmentMetas,
+        metadata: opts.inboundMetadata,
+      },
+    ]);
+
+    // 1. Save assistant message to PostgreSQL
+    await conversationStore.appendMessages(opts.conversationId, [
+      { role: "assistant", content: opts.assistantResponse, steps: opts.steps },
+    ]);
+
+    // 1.5 Generate title (only once, after first exchange)
+    await generateConversationTitle({
+      conversationId: opts.conversationId,
+      instanceId: opts.instanceId,
+      provider: opts.provider,
+      apiKeys: opts.apiKeys,
+      langsmith: opts.langsmith,
+      content: `User: ${opts.userMessage}\nAssistant: ${opts.assistantResponse}`,
+    });
+
+    // 2. Update conversation summary (only when sliding window overflows)
+    if (opts.needsSummaryUpdate && opts.droppedMessages?.length) {
+      const existing = opts.existingSummary
+        ? `Previous summary: ${opts.existingSummary}\n\n`
+        : "";
+      const droppedText = opts.droppedMessages
+        .map(m => {
+          const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
+          return `${label}: ${m.content}`;
+        })
+        .join("\n");
+      try {
+        const now = new Date().toLocaleString(config.datetime.locale, {
+          timeZone: config.datetime.timezone,
+          dateStyle: "full",
+          timeStyle: "short",
+        });
+        const summaryResponse = await chat({
+          tier: "fast",
+          provider: opts.provider,
+          apiKeys: opts.apiKeys,
+          langsmith: opts.langsmith,
+          system: `Today's date: ${now}. Summarize the following conversation context in 2-3 concise sentences, in the same language as the conversation. Include key facts, decisions, and context needed to continue the conversation. Preserve exact dates and figures — never paraphrase or approximate timestamps. Respond ONLY with the summary, no other text.`,
+          messages: [{
+            role: "user",
+            content: `${existing}Messages to summarize:\n${droppedText}`,
+          }],
+        }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service" });
+
+        const summary = summaryResponse.text.trim();
+        if (summary) {
+          await conversationStore.updateSummary(opts.conversationId, summary);
+        }
+      } catch (err) {
+        console.error("Summary generation failed:", err);
+      }
+    }
+
+    // 3. Automatic memory extraction (fire-and-forget within fire-and-forget)
+    if (opts.memoryEnabled !== false) {
+      extractMemories(opts.conversationId, opts.instanceId, opts.apiKeys, opts.provider, opts.langsmith).catch((err) =>
+        console.error("Memory extraction failed:", err),
+      );
+    }
+  };
+
+  work().catch((err: unknown) => console.error("afterResponse error:", err));
+}
+
+// ---------------------------------------------------------------------------
+// runPipelinePre — context preparation
+// ---------------------------------------------------------------------------
+
+export interface PipelinePreResult {
+  ctx: PipelineContext;
+  contextPrepMs: number;
+  /** The message text to use for the supervisor call. */
+  messageText: string;
+}
+
+export async function runPipelinePre(
+  msg: IncomingMessage,
+  conversationIdOverride?: string | null,
+): Promise<PipelinePreResult> {
+  // Phase 1: Context preparation
+  const contextPrepStart = Date.now();
+  const ctx = await preparePipeline(msg, conversationIdOverride);
+  const contextPrepMs = Date.now() - contextPrepStart;
+
+  return { ctx, contextPrepMs, messageText: msg.text };
+}
+
+// ---------------------------------------------------------------------------
+// runPipelinePost — trace recording + afterResponse
+// ---------------------------------------------------------------------------
+
+export interface PipelinePostOptions {
+  ctx: PipelineContext;
+  contextPrepMs: number;
+  messageText: string;
+  channel: string;
+  resultText: string;
+  steps?: unknown[];
+  toolCallTraces?: ToolCallTrace[];
+  usage: { promptTokens: number; completionTokens: number };
+  durationMs: number;
+  toolBuildingMs: number;
+  ttfbMs?: number;
+  isStreaming: boolean;
+  /** When set and already aborted, skip persistence entirely. */
+  abortSignal?: AbortSignal;
+}
+
+export interface PipelinePostResult {
+  finalText: string;
+}
+
+export async function runPipelinePost(opts: PipelinePostOptions): Promise<PipelinePostResult> {
+  const { ctx } = opts;
+
+  // Aborted pipelines leave no trace: skip trace/afterResponse entirely.
+  // The caller (MessageCoordinator) has already discarded the result.
+  if (opts.abortSignal?.aborted) {
+    return { finalText: opts.resultText };
+  }
+
+  const finalText = opts.resultText;
+
+  const totalMs = Date.now() - ctx.pipelineStart;
+  pipelineLog.response(ctx.instanceId, totalMs);
+
+  // Fire-and-forget: record pipeline trace
+  if (!isAutoTask(opts.messageText)) {
+    const sttFields = extractSttFields(ctx.inboundMetadata);
+    const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
+    traceStore.record({
+      conversationId: ctx.conversationId,
+      instanceId: ctx.instanceId,
+      channel: opts.channel,
+      contextPrepMs: opts.contextPrepMs,
+      toolBuildingMs: opts.toolBuildingMs,
+      llmCallMs: opts.durationMs,
+      totalMs,
+      ttfbMs: opts.ttfbMs,
+      promptTokens: opts.usage.promptTokens,
+      completionTokens: opts.usage.completionTokens,
+      toolCalls: opts.toolCallTraces,
+      isStreaming: opts.isStreaming,
+      parentConversationId: agentCall?.callerConversationId,
+      parentTraceId: agentCall?.parentTraceId,
+      ...sttFields,
+    });
+  }
+
+  afterResponse({
+    conversationId: ctx.conversationId,
+    instanceId: ctx.instanceId,
+    userMessage: opts.messageText,
+    assistantResponse: finalText,
+    steps: opts.steps,
+    existingSummary: ctx.conversationSummary,
+    needsSummaryUpdate: ctx.hasOverflow,
+    droppedMessages: ctx.droppedMessages,
+    memoryEnabled: ctx.instanceConfig.memoryEnabled,
+    provider: ctx.instanceConfig.provider,
+    apiKeys: ctx.instanceConfig.apiKeys,
+    langsmith: ctx.langsmith,
+    userAttachments: ctx.userAttachments,
+    incomingSystemMessages: ctx.incomingSystemMessages,
+    inboundMetadata: ctx.inboundMetadata,
+  });
+
+  // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
+  // subsequent inbound turns don't see stale webhook-trigger instructions.
+  // Fire-and-forget — errors logged, not propagated.
+  if (ctx.contextPrompt) {
+    conversationStore.clearContextPrompt(ctx.conversationId).catch((err) =>
+      console.error(`Failed to clear contextPrompt for ${ctx.conversationId}:`, err),
+    );
+  }
+
+  return { finalText };
+}
