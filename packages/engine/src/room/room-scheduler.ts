@@ -9,7 +9,7 @@ import { roomLog } from "./room-logger.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
 import { config } from "../config.js";
 
-const TICK_INTERVAL_MS = 30_000;
+const TICK_INTERVAL_MS = config.room.tickIntervalMs;
 const HOUSEKEEPING_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 class RoomScheduler {
