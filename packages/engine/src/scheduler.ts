@@ -17,10 +17,13 @@ import { countPendingByInstance } from "./webhooks/webhook-backlog.store.js";
 import { resolveInstanceSlug } from "./instances/resolve-instance-id.js";
 import { roomLog } from "./room/room-logger.js";
 import { boss, startBoss, stopBoss } from "./scheduler/pg-boss-client.js";
+import { ensureRoomCycleQueue, ROOM_CYCLE_QUEUE } from "./room/room-queue.js";
 import { config } from "./config.js";
 
-/** Name of the queue that carries one job per due room cycle. */
-export const ROOM_CYCLE_QUEUE = "room-cycle";
+// Re-exported so existing importers (room-worker.ts, room-trigger.ts, tests)
+// can keep importing the queue name from "./scheduler.js". The single source of
+// truth lives in room/room-queue.ts.
+export { ROOM_CYCLE_QUEUE };
 
 /** How long (seconds) a `room-cycle` job may stay active before being retried. */
 const ROOM_CYCLE_EXPIRE_SECONDS = 300;
@@ -71,7 +74,7 @@ export async function schedulerTick(boss: PgBoss): Promise<void> {
  */
 export async function startScheduler(): Promise<() => Promise<void>> {
   await startBoss();
-  await boss.createQueue(ROOM_CYCLE_QUEUE);
+  await ensureRoomCycleQueue(boss);
 
   const tick = (): void => {
     schedulerTick(boss).catch((err) => roomLog.error("Scheduler", "tick failed", err));

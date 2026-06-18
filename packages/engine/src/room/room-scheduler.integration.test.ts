@@ -85,6 +85,7 @@ vi.mock("../scheduler/pg-boss-client.js", () => ({
 /* ── imports under test (after mocks) ──────────────────────────── */
 
 import { schedulerTick, ROOM_CYCLE_QUEUE, type RoomCyclePayload } from "../scheduler.js";
+import { ensureRoomCycleQueue } from "./room-queue.js";
 import { dispatchRoomCycleJob, type RoomCycleJobData } from "./room-worker.js";
 import type { RoomConfig } from "./room.store.js";
 import type { JobWithMetadata } from "pg-boss";
@@ -112,26 +113,23 @@ let connectionString: string;
 
 /** Build a started pg-boss bound to the test container.
  *
- * The queue is created with the `stately` policy. This is load-bearing: with
- * pg-boss's default `standard` policy, `singletonKey` does NOT deduplicate
- * queued jobs (there is no unique index on `(name, singleton_key)` for the
- * `created` state) — dedup only kicks in with a `short`/`stately`/`exclusive`
- * policy or a `singletonSeconds` time window. `stately` enforces one job per
- * `(name, state, singletonKey)`, which is exactly the "one pending tick per
- * instance" semantics the scheduler relies on, while still allowing the tick
- * job (`singletonKey = instanceId`) and the trigger job
- * (`singletonKey = trigger:${instanceId}`) to coexist as distinct keys.
- *
- * NOTE / production gap: scheduler.ts and room-worker.ts currently call
- * `boss.createQueue(ROOM_CYCLE_QUEUE)` with no policy (i.e. `standard`), so the
- * `singletonKey` dedup their docstrings describe does not actually hold in
- * production yet. This test pins the *intended* behaviour; the queue creation
- * in those modules should be updated to pass `{ policy: "stately" }`.
+ * The queue is created via the SAME production helper the scheduler and worker
+ * use — `ensureRoomCycleQueue` (room/room-queue.ts) — so this test exercises the
+ * real production queue config rather than an inline one. That helper applies
+ * the `stately` policy, which is load-bearing: under pg-boss's default
+ * `standard` policy, `singletonKey` does NOT deduplicate queued jobs (there is
+ * no unique index on `(name, singleton_key)` for the `created` state), so two
+ * concurrent ticks — or a second tick while one is pending — would each create a
+ * job. `stately` enforces one job per `(name, state, singletonKey)`, which is
+ * exactly the "one pending tick per instance" semantics the scheduler relies on,
+ * while still allowing the tick job (`singletonKey = instanceId`) and the
+ * trigger job (`singletonKey = trigger:${instanceId}`) to coexist as distinct
+ * keys.
  */
 async function makeBoss(): Promise<PgBoss> {
   const boss = new PgBoss(connectionString);
   await boss.start();
-  await boss.createQueue(ROOM_CYCLE_QUEUE, { policy: "stately" });
+  await ensureRoomCycleQueue(boss);
   return boss;
 }
 

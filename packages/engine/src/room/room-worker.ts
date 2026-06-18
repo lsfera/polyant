@@ -26,7 +26,7 @@ import { compactActivityLog } from "./activity-log.store.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
 import { roomLog } from "./room-logger.js";
 import { boss, startBoss, stopBoss } from "../scheduler/pg-boss-client.js";
-import { ROOM_CYCLE_QUEUE } from "../scheduler.js";
+import { ensureRoomCycleQueue, ROOM_CYCLE_QUEUE } from "./room-queue.js";
 import { config } from "../config.js";
 
 /** How often the daily housekeeping pass runs. */
@@ -102,7 +102,7 @@ export async function runHousekeeping(): Promise<void> {
  */
 export async function startRoomWorker(): Promise<() => Promise<void>> {
   await startBoss();
-  await boss.createQueue(ROOM_CYCLE_QUEUE);
+  await ensureRoomCycleQueue(boss);
 
   await boss.work<RoomCycleJobData>(ROOM_CYCLE_QUEUE, async (jobs) => {
     // pg-boss v12 delivers a batch of jobs; process them sequentially.
