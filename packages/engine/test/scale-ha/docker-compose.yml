@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: polyant-scale-ha
+
+# Horizontal-scale smoke test for the room-cycle scheduler.
+#
+# Two engine replicas behind an nginx load balancer, sharing one Postgres.
+# Each replica runs the full engine — the HTTP API AND the pg-boss room worker
+# in one process — so two replicas means two workers competing on the same
+# `room-cycle` queue. This is exactly the active-passive HA condition the
+# `stately` policy + `singletonKey` dedup is designed for.
+#
+# Driven by ./verify.sh. The secrets below are TEST-ONLY placeholders; never
+# reuse them in a real deployment.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: polyant
+      POSTGRES_USER: polyant
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scaletest}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polyant -d polyant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  engine:
+    build:
+      # Context is the monorepo root — the engine Dockerfile COPYs all workspaces.
+      context: ../../../..
+      dockerfile: packages/engine/Dockerfile
+    image: polyant-engine:scale-ha
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://polyant:${POSTGRES_PASSWORD:-scaletest}@postgres:5432/polyant
+      # Boot requires a 64-hex encryption key and a >=32-char auth secret.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      AUTH_SECRET: ${AUTH_SECRET:-scale-ha-auth-secret-please-change-0123456789}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+    expose:
+      - "4000"
+
+  lb:
+    build:
+      context: .
+      dockerfile: Dockerfile.lb
+    image: polyant-scale-ha-lb:latest
+    container_name: scale-ha-lb
+    depends_on:
+      - engine
+    ports:
+      # Curl the balanced API at http://localhost:${LB_PORT:-8088}/health
+      - "${LB_PORT:-8088}:80"

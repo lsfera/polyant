@@ -118,6 +118,14 @@ const configSchema = z.object({
     callTimeoutMs: z.coerce.number().int().positive().default(60000),
   }),
 
+  // Room scheduler. The tick-based scheduler polls enabled rooms on this
+  //   interval and enqueues a `room-cycle` job (via pg-boss) for every room
+  //   with pending events.
+  //   tickIntervalMs: milliseconds between scheduler ticks (default 30s).
+  room: z.object({
+    tickIntervalMs: z.coerce.number().int().positive().default(30_000),
+  }),
+
   // Activity stream (SSE) resource limits.
   //   maxConnections:    global cap on concurrent SSE subscribers (across all users).
   //   maxPerUser:        per-authenticated-user cap on concurrent SSE subscribers.
@@ -219,6 +227,9 @@ function loadConfig(): Config {
     },
     agent: {
       callTimeoutMs: process.env.AGENT_CALL_TIMEOUT_MS,
+    },
+    room: {
+      tickIntervalMs: process.env.ROOM_TICK_INTERVAL_MS,
     },
     activityStream: {
       maxConnections: process.env.SSE_MAX_CONNECTIONS,

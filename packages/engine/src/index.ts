@@ -22,7 +22,8 @@ import { traceStore } from "./analytics/trace.store.js";
 import { auditStore } from "./audit/audit.store.js";
 import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
-import { roomScheduler } from "./room/room-scheduler.js";
+import { startRoomWorker } from "./room/room-worker.js";
+import { enqueueRoomTrigger } from "./room/room-trigger.js";
 import { getRoomBySlug, type RoomConfig } from "./room/room.store.js";
 import { getActiveTrigger } from "./webhooks/active-triggers.js";
 import { findActiveTaskByOutbound } from "./scheduled-tasks/store.js";
@@ -167,7 +168,7 @@ async function main() {
         roomCheck.outboundChannel === msg.channelType &&
         roomCheck.outboundTarget === msg.channelId
       ) {
-        await roomScheduler.triggerImmediate(roomCheck, effectiveInstanceId, msg.text);
+        await enqueueRoomTrigger(effectiveInstanceId, msg.text);
         return { text: "" };
       }
     }
@@ -324,8 +325,8 @@ async function main() {
   schedulerService.initialize(handleMessage);
   await schedulerService.start();
 
-  // 7. Start room scheduler
-  roomScheduler.start();
+  // 7. Start engine room worker (pg-boss consumer + housekeeping loop)
+  const stopRoomWorker = await startRoomWorker();
 
   const activeChannels = channelManager.getActiveChannels();
 
@@ -349,7 +350,7 @@ async function main() {
     console.log("\nShutting down...");
     await nestApp.close();
     schedulerService.shutdown();
-    roomScheduler.shutdown();
+    await stopRoomWorker();
     await channelManager.shutdownAll();
     await traceStore.shutdown();
     await auditStore.shutdown();
